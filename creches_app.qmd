@@ -1,0 +1,602 @@
+---
+format: html
+---
+ ```{=html} 
+
+ <style> 
+
+ table, th, td { 
+
+   padding: 0 px; 
+
+   text-align:left; 
+
+ } 
+
+ div,p { 
+
+   padding: 0 px; 
+
+   font-size:20px; 
+
+   text-align:left; 
+
+   color:#0F2759 
+
+ } 
+
+ </style> 
+
+ <div> 
+
+             <img src="creches/www/seplag_sd.png" align="right" width="20%"/> 
+
+             <img src="creches/www/ig_sd.png" align="left" width="10%"/> 
+
+ </div> 
+
+ <div> 
+
+               <p ><br><br> 
+
+                 Núcleo de Ciências de Dados                                                    <br> 
+
+                 <small>Nota Técnica - Levantamento da Necessidade de Creches na RMR</small> 
+
+               </p> 
+
+ </div> 
+
+ <small >Nota Técnica Nº 01</small> 
+```
+# Levantamento da Necessidade de Creches na Região Metropolitana do Recife
+
+```{r include=FALSE}
+# Carregando Bibliotecas
+if(!require(pacman))install.packages("pacman")
+pacman::p_load(
+  'dplyr', 'tidyr','ggplot2','hrbrthemes','forcats','png', 'gt','gtExtras','DT',
+  'formattable','ggpubr','scales', 'grid', 'ggpubr','bbplot','leaflet'
+)
+source("style_fun.r")
+
+# Carregando os objetos
+udh <- readRDS("arquivos/udh.rds")
+creches <- readRDS("arquivos/creches_mapa.rds")
+Grade <- readRDS("arquivos/Grade.rds")
+
+# Criando um df adequado a visualização
+udhTB <- sf::st_drop_geometry(udh)
+udhTB <- udhTB |> transmute(
+  UDH = UDH_ATLAS,
+  Município = NM_MUNICIP,
+  `População Total` = as.integer(pop_total),
+  `População Creche` = as.integer(pop_creche),
+  Vagas = as.integer(Matrículas),
+  IVS = as.numeric(ivs),
+  `Faixa IVS` = as.factor(classificação),
+  `Renda per capita` = prettyNum(renda, big.mark = ".", decimal.mark = ","),
+  Creches  = as.integer(creches),
+  # `Qtd Creches Necessárias` = round(pop_creche/200,1),
+  `Déficit de Vagas` = pop_creche - as.integer(Matrículas),
+  `População Atendida (%)`= (as.integer(Matrículas))/pop_creche
+  )
+
+udh_nome <- xlsx::read.xlsx2("arquivos/udh_nome.xlsx", sheetIndex = 1)
+udh_nome <- udh_nome |> transmute(
+  UDH = as.character(udh),
+  `Nome UDH` = as.character(nome_udh)
+)
+udhTB <- left_join(udhTB,udh_nome)
+
+# Base tabela por UDH
+tb_udh <-
+udhTB[,-1] |>
+  group_by(`Nome UDH`,Município,`Faixa IVS`) |>
+  summarise(
+
+            `População Total` = sum(`População Total`),
+            `População Creche` = sum(`População Creche`),
+            Creches = sum(Creches),
+            Vagas = sum(Vagas),
+            `Déficit de Vagas` = sum(`Déficit de Vagas`),
+            `População Atendida (%)` = sum(Vagas)/sum(`População Creche`)
+            )
+
+# Tabela UDH prioritária
+tb_udh_foco <- tb_udh |> filter(`Faixa IVS` == "5.Muito Alta" | `Faixa IVS` == "4.Alta" )
+
+# Base para tabela agrupada por municipio
+tb_mun_geral <-
+udhTB |> group_by(Município) |>
+  summarise(`População Total` = sum(`População Total`),
+            `População Creche` = sum(`População Creche`),
+            Creches = sum(Creches),
+            Vagas = sum(Vagas),
+            `Déficit de Vagas` = sum(`Déficit de Vagas`),
+            `População Atendida (%)` = sum(Vagas)/sum(`População Creche`)
+            )
+
+
+tb_mun <-
+udhTB |> group_by(Município,`Faixa IVS`) |>
+  summarise(`População Total` = sum(`População Total`),
+            `População Creche` = sum(`População Creche`),
+            Creches = sum(Creches),
+            Vagas = sum(Vagas),
+            `Déficit de Vagas` = sum(`Déficit de Vagas`),
+            `População Atendida (%)` = sum(Vagas)/sum(`População Creche`)
+            )
+# Base para tabela agrupada por municipio filtrando as Faixas Alta e Muito Alta
+tb_mun_alta <-
+udhTB  |> dplyr:: filter(`Faixa IVS` == "5.Muito Alta" | `Faixa IVS` == "4.Alta" , `População Atendida (%)` < 0.5 )|> group_by(Município) |>
+summarise(`População Total` = sum(`População Total`),
+          `População Creche` = sum(`População Creche`),
+          Creches = sum(Creches),
+          Vagas = sum(Vagas),
+          `Déficit de Vagas` = sum(`Déficit de Vagas`),
+          `População Atendida (%)` = sum(Vagas) /sum(`População Creche`)
+          )
+
+# Criando dataframe agrupando por udh
+udh_ivs <- sf::st_drop_geometry(udh) |> group_by(classificação) |> summarise(UDH = n(),
+                                            `População Total` = sum(pop_total),
+                                            `População Creche` = sum(pop_creche),
+                                            Vagas = sum(Matrículas),
+                                            Creches  = sum(creches),
+                                            `População Atendida (%)` = sum(Vagas)/sum(`População Creche`)
+                                            ) |> rename(`Faixa IVS`=classificação)
+
+
+```
+
+## Introdução
+
+Esta Nota Técnica pretende contribuir para o processo decisório na priorização do acesso ao serviço de creches nos municípios da Região Metropolitana do Recife (RMR). A Meta I do Plano Nacional de Educação (PNE) pretende garantir o acesso à essa modalidade da educação infantil a pelo menos 50% da população de 0 a 3 anos até 2024. Segundo a metodologia empregada neste estudo, na RMR temos apenas 7,5% das vagas necessárias para atender a população nesta faixa etária, o que evidencia a necessidade de ampliação do acesso, sobretudo nas áreas de maior vulnerabilidade social.
+
+
+## Objetivos
+
+Este estudo pretende identificar áreas na Região Metropolitana do Recife que apresentam maior necessidade de ampliação do serviço público de ensino infantil na modalidade creche. Para tanto, será disponibilizado uma lista com as Unidades de Desenvolvimento Humano (UDH) que devem ser priorizadas, assim como um mapa interativo apresentando as unidades de creche cadastradas no último Censo Escolar (2022) e as UDH da RMR. Espera-se que essas duas ferramentas auxiliem na implementação de políticas públicas que ampliem o acesso ao serviço de creche nas áreas mais necessitadas.
+
+## Metodologia
+
+O processo de priorização das Unidades de Desenvolvimento Humano foi realizado a partir de uma regra de negócio simples, identificar as unidades que apresentem Índice de Vulnerabilidade Social (IVS) Alto ou Muito Alto e que o número estimado de vagas ofertadas seja menor que 50% da população da faixa etária de zero a três anos. Para melhor compreenssão do processo, é prudente definir os conceitos de Unidades de Desenvolvimento Humano e Índice de Vulnerabilidade Social.
+
+
+## Unidades de Desenvolvimento Humano (UDH)
+
+As Unidades de Desenvolvimento Humano (UDH) são uma medida utilizada pelo Programa das Nações Unidas para o Desenvolvimento (PNUD) para avaliar e comparar o desenvolvimento humano em diferentes países e regiões. Essa medida é uma alternativa ao tradicional Produto Interno Bruto (PIB) per capita, que considera apenas a renda econômica de um país, sem levar em conta outros fatores importantes para o bem-estar humano.
+
+O Índice de Desenvolvimento Humano (IDH) é uma das principais métricas criadas pelo PNUD para medir o desenvolvimento humano em diferentes países. O IDH leva em consideração três dimensões fundamentais:
+
+-   Saúde: Medida pela esperança de vida ao nascer.
+
+-   Educação: Avaliada através da média de anos de escolaridade e da expectativa de anos de escolaridade.
+
+-   Renda: Representada pelo PIB per capita ajustado ao poder de compra.
+
+As Unidades de Desenvolvimento Humano são classificadas em diferentes categorias, como "desenvolvimento humano muito alto", "desenvolvimento humano alto", "desenvolvimento humano médio" e "desenvolvimento humano baixo", com base nos valores do IDH.
+
+Essa abordagem mais ampla do desenvolvimento humano visa fornecer uma visão mais completa da qualidade de vida das pessoas em um determinado país ou região, considerando não apenas a renda, mas também a saúde e a educação, como componentes essenciais do bem-estar geral da população.
+
+
+## Índice de Vulnerabilidade Social (IVS)
+
+O Índice de Vulnerabilidade Social (IVS) é um índice sintético, desenvolvido pelo IPEA, que agrega indicadores do bloco vulnerabilidade social do Atlas do Desenvolvimento Humano. O índice está estruturado em 3 dimensões, *infraestrutura urbana*, *capital humano* e *renda e trabalho*. O índice varia entre 0 e 1, quanto mais próximo de 1, maior a vulnerabilidade social da localidade. A partir do IVS, as unidades de análise podem ser classificadas em 5 faixas:
+
+-   Muito Baixa \< 0,2
+
+-   Baixa \< 0,3
+
+-   Média \< 0,4
+
+-   Alta \< 0,5
+
+-   Muito Alta \> 0,5
+
+O IVS foi adotado como critério de análise por sintetizar características relevantes para priorização da ampliação do serviço, uma vez que nas Unidades de Desenvolvimento Humano com *menor* vulnerabilidade social, parte da população alvo utiliza o serviço fornecido pela rede privada ou por trabalhadores domésticos. Além disso, a segmentação por UDH facilita o cálculo da população, embora com dados do Censo de 2010. Foi feita uma tentativa de estimar a população através dos pontos de fornecimento de energia, mas o resultado não foi considerado satisfatório pois a população total estimada ficou muito abaixo do esperado para toda a RMR. No entanto, os dados de energia foram utilizados para construir uma grade de células de 2 KM^2^ a partir concentração espacial de unidades familiares (pontos de energia) e fazer um recorte da densidade populacional da UDH, retirando as células com população alvo (crianças de 0 a 3 anos) estimada menor que 20. Assim é possível identificar regiões de pouca densidade populacional de forma mais detalhada. Para calcular a oferta de vagas, foi utilizado o total de mátriculas registrados no Censo Escolar de 2022.
+
+
+## As Unidades de Desenvolvimento Humano na RMR
+
+A Região Metropolitana do Recife está dividida em 461 Unidades e considerando o Censo de 2010 apresenta um IVS de 0,392, ou seja, dentro da faixa de *média* vulnerabilidade social. A tabela abaixo apresenta os dados utilizados no estudo agrupados por faixa de vulnerabilidade social.
+
+```{r echo=FALSE}
+udh_ivs |> gt(locale = "pt") |>
+# gt_theme_nytimes() |>
+   fmt_number(
+    columns = 2:6,
+    decimals = 0,
+    use_seps = TRUE,
+  ) |>
+     fmt_percent(
+    columns = 7,
+    decimals = 2,
+    use_seps = FALSE,
+  ) |> tab_header(title = md("#### Unidades de Desenvolvimento Humano"),
+                  subtitle = md("UDH agrupadas por IVS")) |> tab_source_note("Elaborada com dados do Inep e Ipea") |>
+    tab_options(
+      heading.align = "left",
+      column_labels.border.top.style = "none",
+      table.border.top.style = "none",
+      column_labels.border.bottom.style = "none",
+      column_labels.border.bottom.width = 1,
+      column_labels.border.bottom.color = "#334422",
+      table_body.border.top.style = "none",
+      table_body.border.bottom.color = "white",
+      heading.border.bottom.style = "none",
+      data_row.padding = px(7),
+      column_labels.font.size = px(12),
+
+    ) |>
+     tab_style(style = cell_text(
+        color = "#0F2759",
+        font = google_font("Source Sans Pro"),
+        transform = "uppercase"),
+        locations = cells_column_labels(everything())
+            ) |>
+   tab_style(style = cell_text(
+        color = "#0F2759",
+        font = google_font("Source Sans Pro"),
+        transform = "uppercase"),
+        locations = cells_title()
+            ) |>
+   tab_style(style = cell_text(
+        # color = "#0F2759",
+        font = google_font("Source Sans Pro"),
+        transform = "uppercase"),
+        locations = cells_body()
+            ) |>
+     tab_style(style = cell_text(
+        color = "#0F2759",
+        font = google_font("Source Sans Pro"),
+        # transform = "uppercase"
+        ),
+        locations = cells_source_notes()
+            )
+```
+
+
+Apesar de no geral apresentar *média* vulnerabilidade social, o gráfico abaixo destaca que o grupo com maior população está na faixa de *alta* vulnerabilidade.
+
+
+```{r echo=FALSE}
+# Tabela População Total por Faixa de IVS
+ggplot(udh_ivs, aes(x = `Faixa IVS`, y = `População Total`)) +
+  geom_bar(stat="identity", 
+           position="identity", 
+           fill="#0F2759") +
+  geom_hline(yintercept = 0, colour="#333333") +
+  labs(title="Unidades de Desenvolvimento Humano"
+        ,subtitle = "População Total por Faixa de IVS"
+  )  + ig_style() + scale_y_continuous(labels = comma_format(big.mark = ".",
+                                           decimal.mark = ","))
+
+```
+
+
+Como é de se esperar, o mesmo ocorre para a população alvo, de 0 a 3 anos.
+
+
+```{r echo=FALSE}
+# Tabela População Total por Faixa de IVS
+ggplot(udh_ivs, aes(x = `Faixa IVS`, y = `População Creche`)) +
+  geom_bar(stat="identity", 
+           position="identity", 
+           fill="#0F2759") +
+  geom_hline(yintercept = 0, colour="#333333") +
+  labs(title="Unidades de Desenvolvimento Humano"
+        ,subtitle = "População 0 a 3 anos por Faixa de IVS"
+  )  + ig_style() + scale_y_continuous(labels = comma_format(big.mark = ".",
+                                           decimal.mark = ","))
+```
+
+
+## Análise de Oferta e Demanda
+
+De acordo com o Censo Escolar 2022, a rede pública de ensino da RMR oferece 15.431 vagas na modalidade creche, em 281 unidades escolares. Este número é insuficiente, pois como apontado anteriormente, atende apenas 7,5% da população de 0 a 3 anos, muito aquém da meta de 50% estipulada pelo Plano Nacional de Educação para 2024.
+
+
+```{r echo=FALSE}
+udhTB |> summarise(
+            `População Total` = 
+                  sum(`População Total`),
+            `População Creche` = sum(`População Creche`),
+            `Total Creches` = sum(Creches),
+            `Total Vagas` = sum(Vagas),
+            `Déficit de Vagas` = sum(`Déficit de Vagas`), 
+            `População Atendida (%)` = sum(Vagas)/sum(`População Creche`)
+                                        )|> gt(locale = "pt") |>
+   # gt_theme_nytimes() |>
+   fmt_number(
+    columns = 1:5,
+    decimals = 0,
+    use_seps = TRUE,
+  ) |>
+     fmt_percent(
+    columns = 6,
+    decimals = 2,
+    use_seps = FALSE,
+  ) |> tab_header(title = md("#### Demanda e Oferta de Vagas"),
+                  subtitle = md("Quadro Geral")
+                  ) |> tab_source_note("Elaborada com dados do Inep e Ipea") |>
+    tab_options(
+      heading.align = "left",
+      column_labels.border.top.style = "none",
+      table.border.top.style = "none",
+      column_labels.border.bottom.style = "none",
+      column_labels.border.bottom.width = 1,
+      column_labels.border.bottom.color = "#334422",
+      table_body.border.top.style = "none",
+      table_body.border.bottom.color = "white",
+      heading.border.bottom.style = "none",
+      data_row.padding = px(7),
+      column_labels.font.size = px(12),
+
+    ) |>
+     tab_style(style = cell_text(
+        color = "#0F2759",
+        font = google_font("Source Sans Pro"),
+        transform = "uppercase"),
+        locations = cells_column_labels(everything())
+            ) |>
+   tab_style(style = cell_text(
+        color = "#0F2759",
+        font = google_font("Source Sans Pro"),
+        transform = "uppercase"),
+        locations = cells_title()
+            ) |>
+   tab_style(style = cell_text(
+        # color = "#0F2759",
+        font = google_font("Source Sans Pro"),
+        transform = "uppercase"),
+        locations = cells_body()
+            ) |>
+     tab_style(style = cell_text(
+        color = "#0F2759",
+        font = google_font("Source Sans Pro"),
+        # transform = "uppercase"
+        ),
+        locations = cells_source_notes()
+            )
+
+```
+
+
+Como pode-se observar na tabela abaixo, os municípios com maior déficit de vagas proporcional são os de Moreno, Abreu e Lima e São Lourenço da Mata. O município de Ipojuca é o que apresenta o menor déficit de vagas, garantindo o acesso a 22,7% da população, alcançando próximo da metade da meta do PNE.
+
+
+```{r echo=FALSE}
+
+tb_mun_geral |> arrange(`População Atendida (%)`) |>
+  
+  gt(locale = "pt") |>
+   # gt_theme_nytimes() |>
+   fmt_number(
+    columns = 2:6,
+    decimals = 0,
+    use_seps = TRUE,
+  ) |>
+     fmt_percent(
+    columns = 7,
+    decimals = 2,
+    use_seps = FALSE,
+  ) |> tab_header(title = md("#### Demanda e Oferta de Vagas nos Municípios")
+                  # subtitle = md("Municípios")
+                  ) |> tab_source_note("Elaborada com dados do Inep e Ipea") |>
+    tab_options(
+      heading.align = "left",
+      column_labels.border.top.style = "none",
+      table.border.top.style = "none",
+      column_labels.border.bottom.style = "none",
+      column_labels.border.bottom.width = 1,
+      column_labels.border.bottom.color = "#334422",
+      table_body.border.top.style = "none",
+      table_body.border.bottom.color = "white",
+      heading.border.bottom.style = "none",
+      data_row.padding = px(7),
+      column_labels.font.size = px(12),
+
+    ) |>
+     tab_style(style = cell_text(
+        color = "#0F2759",
+        font = google_font("Source Sans Pro"),
+        transform = "uppercase"),
+        locations = cells_column_labels(everything())
+            ) |>
+   tab_style(style = cell_text(
+        color = "#0F2759",
+        font = google_font("Source Sans Pro"),
+        transform = "uppercase"),
+        locations = cells_title()
+            ) |>
+   tab_style(style = cell_text(
+        # color = "#0F2759",
+        font = google_font("Source Sans Pro"),
+        transform = "uppercase"),
+        locations = cells_body()
+            ) |>
+     tab_style(style = cell_text(
+        color = "#0F2759",
+        font = google_font("Source Sans Pro"),
+        # transform = "uppercase"
+        ),
+        locations = cells_source_notes()
+            )
+
+
+
+```
+
+
+A tabela abaixo demonstra os dados por município empregando os critérios de priorização (IVS Alto ou Muito Alto e menos de 50% da população atendida). Novamente se destacam os municípios de Moreno, Abreu e Lima e São Lourenco da Mata, mas também Igarassu e Paulista aparecem no grupo dos 25% piores.
+
+
+```{r tabela_foco_munic, echo=FALSE}
+
+tb_mun_alta |> arrange(`População Atendida (%)`) |>
+  
+  gt(locale = "pt") |>
+   # gt_theme_nytimes() |>
+   fmt_number(
+    columns = 2:6,
+    decimals = 0,
+    use_seps = TRUE,
+  ) |>
+     fmt_percent(
+    columns = 7,
+    decimals = 2,
+    use_seps = FALSE,
+  ) |> tab_header(title = md("#### Demanda e Oferta de Vagas nos Municípios"),
+                  subtitle = md("Agrupamento de UDH com IVS Alto e Muito Alto")
+                  ) |> tab_source_note("Elaborada com dados do Inep e Ipea") |>
+    tab_options(
+      heading.align = "left",
+      column_labels.border.top.style = "none",
+      table.border.top.style = "none",
+      column_labels.border.bottom.style = "none",
+      column_labels.border.bottom.width = 1,
+      column_labels.border.bottom.color = "#334422",
+      table_body.border.top.style = "none",
+      table_body.border.bottom.color = "white",
+      heading.border.bottom.style = "none",
+      data_row.padding = px(7),
+      column_labels.font.size = px(12),
+
+    ) |>
+     tab_style(style = cell_text(
+        color = "#0F2759",
+        font = google_font("Source Sans Pro"),
+        transform = "uppercase"),
+        locations = cells_column_labels(everything())
+            ) |>
+   tab_style(style = cell_text(
+        color = "#0F2759",
+        font = google_font("Source Sans Pro"),
+        transform = "uppercase"),
+        locations = cells_title()
+            ) |>
+   tab_style(style = cell_text(
+        # color = "#0F2759",
+        font = google_font("Source Sans Pro"),
+        transform = "uppercase"),
+        locations = cells_body()
+            ) |>
+     tab_style(style = cell_text(
+        color = "#0F2759",
+        font = google_font("Source Sans Pro"),
+        # transform = "uppercase"
+        ),
+        locations = cells_source_notes()
+            )
+
+# DT::datatable(tb_mun_alta,
+#               options = list( pageLength = 15,dom = 'rt')
+#               ) %>% formatRound('População Total',digits = 0,mark = ".",dec.mark = ",") %>% formatRound('População Creche',digits = 0,mark = ".",dec.mark = ",") %>% formatRound('Vagas',digits = 0,mark = ".",dec.mark = ",")%>% formatRound('Déficit de Vagas',digits = 0,mark = ".",dec.mark = ",") %>% formatPercentage('População Atendida (%)', 2)
+
+```
+#
+Em seguida temos essa informação desagrupada por Unidade de Desenvolvimento Humano. Por não fazer parte da RMR no Atlas de Desenvolvimento Social, o município de Goiana está representado como uma UDH.
+
+
+```{r echo=FALSE}
+#| column: page
+
+DT::datatable(tb_udh |> dplyr:: filter(`Faixa IVS` == "5.Muito Alta" | `Faixa IVS` == "4.Alta" , `População Atendida (%)` < 0.5 ) |> arrange(Município,`População Atendida (%)`),rownames = FALSE,
+              caption = htmltools::tags$caption( style = 'caption-side: top; text-align: center; font-size:150% ;','Dados Agrupados por UDH'),
+              filter = 'top',
+              extensions = 'Buttons','FixedHeader',
+              options = list(pageLength = 10,autoWidth = TRUE,dom = 'lBfrtip', buttons = c('excel','pdf'),fixedHeader = TRUE,
+                             headerCallback = DT::JS(
+    "function(thead) {",
+    "  $(thead).css('font-size', '15px');",
+    "}"
+  )
+                             
+                             ))%>% formatStyle(1,`font-size` = '10px')%>% formatStyle(2:9,`font-size` = '12px') %>% formatRound('População Total',digits = 0,mark = ".",dec.mark = ",") %>% formatRound('População Creche',digits = 0,mark = ".",dec.mark = ",")%>% formatRound('Déficit de Vagas',digits = 0,mark = ".",dec.mark = ",") %>% formatPercentage('População Atendida (%)', 2)
+```
+#
+Para análises mais detalhadas, temos o conjunto de dados utilizados para o processo de priorização, resultado da "junção" dos dados do Censo Escolar 2022, do Catálogo de Escolas e do Atlas de Vulnerabilidade Social.
+
+```{r echo=FALSE}
+#| column: page
+DT::datatable(tb_udh,
+             rownames = FALSE,
+              caption = htmltools::tags$caption( style = 'caption-side: top; text-align: center; font-size:150% ;','Dados Agrupados por UDH'),
+              filter = 'top',
+              extensions = 'Buttons','FixedHeader',
+              options = list(pageLength = 10,autoWidth = TRUE,dom = 'lBfrtip', buttons = c('excel','pdf'),fixedHeader = TRUE,
+                             headerCallback = DT::JS(
+    "function(thead) {",
+    "  $(thead).css('font-size', '15px');",
+    "}"
+  )
+                             
+                             ))%>% formatStyle(1,`font-size` = '10px')%>% formatStyle(2:9,`font-size` = '12px') %>% formatRound('População Total',digits = 0,mark = ".",dec.mark = ",") %>% formatRound('População Creche',digits = 0,mark = ".",dec.mark = ",")%>% formatRound('Déficit de Vagas',digits = 0,mark = ".",dec.mark = ",") %>% formatPercentage('População Atendida (%)', 2)
+```
+#
+## Visualização Espacial dos Dados
+
+De forma a facilitar a análise, o mapa interativo abaixo permite visualizar as unidades de creche e as Unidades de Desenvolvimento Humano localizadas na Região Metropolitana do Recife.
+
+
+```{r echo=FALSE}
+#| column: page
+
+# Criando o texto dos popups
+pop_creche <- paste(
+  creches$NO_ENTIDADE,"<br/>",
+  "Cidade: ", creches$NO_MUNICIPIO,"<br/>", 
+  "Bairro: ", creches$NO_BAIRRO, "<br/>",
+  "Matrículas: ", creches$Matrículas, "<br/>",
+  "IVS Status: ", Grade$classificação, "<br/>", 
+  sep="") %>%
+  lapply(htmltools::HTML)
+
+pop_udh <- paste(
+  udh$UDH_ATLAS,"<br/>",
+  "Cidade: ", udh$NM_MUNICIP,"<br/>", 
+  "IVS: ", udh$ivs, "<br/>",
+  "IVS Status: ", udh$classificação, "<br/>", 
+  "População: ", udh$pop_total, "<br/>",
+  "População Creches: ", udh$pop_creche, "<br/>",
+  "População Atendida: ",  stringr::str_c(
+    round(udh$`População Atendida (%)`,2),
+    "%"),"<br/>",
+  "Matrículas: ", udh$Matrículas, "<br/>",
+  "Renda: ", udh$renda,"<br/>",
+  sep="") %>%
+  lapply(htmltools::HTML)
+
+# Paleta de Cores
+palette_ivs <- leaflet::colorNumeric( palette="viridis", domain=udh$ivs, na.color="transparent")
+palette_renda <- leaflet::colorNumeric( palette="viridis", domain=udh$renda, na.color="transparent")
+palette_status <- leaflet::colorFactor(palette =c("cornflowerblue","lightgreen","wheat","tomato" ,"red") , domain = (udh$classificação))
+
+# mapa interativo
+leaflet::leaflet() %>%
+  setView(lng = -34.895, lat = -8.120, zoom = 8) %>%
+  addTiles() %>%
+  addLegend( data = udh, pal=palette_status, values=~classificação, opacity=0.5, title = "Índice de Vulnerabilidade Social (IVS)", position = "bottomleft" ,group = "IVS" ) %>%
+  addLegend( data = udh, pal=palette_renda, values=~renda, opacity=0.5, title = "Renda)", position = "bottomleft" ,group = "Renda" ) %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  addLayersControl(overlayGroups = c("Creches","IVS","Renda","Grade"),options = layersControlOptions(collapsed = FALSE)) %>%
+  hideGroup(c("IVS","Renda","Grade"))%>%
+  addPolygons(data = udh,fillColor = ~palette_status(classificação),stroke=TRUE, fillOpacity = 0.25,popup = pop_udh, color="black", weight=0.3, group = "IVS" ,labelOptions = labelOptions( style = list("font-weight" = "normal", padding = "3px 8px"), textsize = "5px", direction = "auto"  )) %>%
+  addPolygons(data = udh,fillColor = ~palette_renda(renda),stroke=TRUE, fillOpacity = 0.25, popup = pop_udh,color="white", weight=0.3, group = "Renda" ,labelOptions = labelOptions( style = list("font-weight" = "normal", padding = "3px 8px"), textsize = "5px", direction = "auto"  )) %>%  
+  addPolygons(data = Grade,color = "blue",weight = 1,fill = FALSE, group = "Grade") %>%
+  addCircleMarkers(data = creches, lat = ~LAT, lng = ~LONG, radius = 1, color = "darkgreen", popup = pop_creche, group = "Creches")
+
+
+```
+
+
+## Referências
+
+BRASIL. Instituto Nacional de Estudos e Pesquisas Educacionais Anísio Teixeira (Inep). Catálogo de Escolas. Disponível em: <https://www.gov.br/inep/pt-br/acesso-a-informacao/dados-abertos/inep-data/catalogo-de-escolas>
+
+BRASIL. Instituto Nacional de Estudos e Pesquisas Educacionais Anísio Teixeira (Inep). Resumo Técnico: Censo Escolar da Educação Básica 2022. Disponível em: <https://www.gov.br/inep/pt-br/areas-de-atuacao/pesquisas-estatisticas-e-indicadores/censo-escolar/resultados/2022>
+
+BRASIL. Instituto de Pesquisa Econômica Aplicada (Ipea). Atlas de Vulnerabilidade Social. Disponível em: <http://ivs.ipea.gov.br/index.php/pt/sobre>
+
