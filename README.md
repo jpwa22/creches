@@ -1,45 +1,80 @@
-# Levantamento da Necessidade de Creches na Região Metropolitana do Recife
+# Onde abrir creches? Um exemplo de política pública baseada em evidências
 
-## Introdução
+Este repositório contém o código e os dados utilizados no projeto que visa identificar áreas prioritárias para a expansão da oferta de creches públicas na Região Metropolitana do Recife (RMR), com base em indicadores socioeconômicos e dados educacionais.
 
-Esta Nota Técnica pretende contribuir para o processo decisório na priorização do acesso ao serviço de creches nos municípios da Região Metropolitana do Recife (RMR). A Meta I do Plano Nacional de Educação (PNE) pretende garantir o acesso à essa modalidade da educação infantil a pelo menos 50% da população de 0 a 3 anos até 2024. Segundo a metodologia empregada neste estudo, na RMR temos apenas 6,8% das vagas necessárias para atender a população nesta faixa etária, o que evidencia a necessidade de ampliação do acesso, sobretudo nas áreas de maior vulnerabilidade social.
+## 🧭 Objetivo
 
-## Objetivos
+Contribuir para a tomada de decisão na gestão pública ao indicar, de forma georreferenciada, os locais com maior necessidade de expansão da educação infantil na modalidade creche (0 a 3 anos), utilizando dados como:
 
-Este estudo pretende identificar áreas na Região Metropolitana do Recife que apresentam maior necessidade de ampliação do serviço público de ensino infantil na modalidade creche. Para tanto, será disponibilizado uma lista com as Unidades de Desenvolvimento Humano (UDH) que devem ser priorizadas, assim como um mapa interativo apresentando as unidades de creche cadastradas no último Censo Escolar (2022) e as UDH da RMR. Espera-se que essas duas ferramentas auxiliem na implementação de políticas públicas que ampliem o acesso ao serviço de creche nas áreas mais necessitadas.
+- Matrículas em creches por bairro ou setor censitário
+- Número de crianças de 0 a 3 anos residentes na região
+- Indicadores de vulnerabilidade social (IVS)
+- Índice de Desenvolvimento Humano (IDHM)
 
-## Metodologia
+## 📂 Estrutura do repositório
 
-O processo de priorização das Unidades de Desenvolvimento Humano foi realizado a partir de uma regra de negócio simples, identificar as unidades que apresentem Índice de Vulnerabilidade Social (IVS) Alto ou Muito Alto e que o número estimado de vagas ofertadas seja menor que 50% da população da faixa etária de zero a três anos.  
+- `creches.R`: script principal de preparação dos dados.
+- `creches_app.qmd`: relatório em Quarto com visualizações e análises interativas.
+- `style_fun.R`: funções auxiliares de estilo e formatação.
+- `arquivos/`: dados utilizados na análise (matrículas, população, IVS etc.).
+- `shapes/`: arquivos geoespaciais utilizados para mapas.
 
-### Unidades de Desenvolvimento Humano (UDH)
+## 💻 Como replicar o relatório
 
-As Unidades de Desenvolvimento Humano (UDH) são uma medida utilizada pelo Programa das Nações Unidas para o Desenvolvimento (PNUD) para avaliar e comparar o desenvolvimento humano em diferentes países e regiões. Essa medida é uma alternativa ao tradicional Produto Interno Bruto (PIB) per capita, que considera apenas a renda econômica de um país, sem levar em conta outros fatores importantes para o bem-estar humano.
+### 1. Pré-requisitos
 
-O Índice de Desenvolvimento Humano (IDH) é uma das principais métricas criadas pelo PNUD para medir o desenvolvimento humano em diferentes países. O IDH leva em consideração três dimensões fundamentais:
+Você precisa ter o R instalado (versão ≥ 4.2) com os seguintes pacotes:
 
--   Saúde: Medida pela esperança de vida ao nascer.
+```r
+install.packages(c(
+  "tidyverse", "sf", "readxl", "janitor", "ggplot2",
+  "quarto", "ggtext", "geobr", "tmap", "glue"
+))
+```
 
--   Educação: Avaliada através da média de anos de escolaridade e da expectativa de anos de escolaridade.
+Você também precisará instalar o Quarto:  
+https://quarto.org/docs/get-started/
 
--   Renda: Representada pelo PIB per capita ajustado ao poder de compra.
+### 2. Clonar o repositório
 
-As Unidades de Desenvolvimento Humano são classificadas em diferentes categorias, como "desenvolvimento humano muito alto", "desenvolvimento humano alto", "desenvolvimento humano médio" e "desenvolvimento humano baixo", com base nos valores do IDH.
+```bash
+git clone https://github.com/jpwa22/creches.git
+cd creches
+```
 
-Essa abordagem mais ampla do desenvolvimento humano visa fornecer uma visão mais completa da qualidade de vida das pessoas em um determinado país ou região, considerando não apenas a renda, mas também a saúde e a educação, como componentes essenciais do bem-estar geral da população.
+### 3. Rodar o script de dados
 
-### Índice de Vulnerabilidade Social (IVS)
+Abra o R ou RStudio e execute:
 
-O Índice de Vulnerabilidade Social (IVS) é um índice sintético, desenvolvido pelo IPEA, que agrega indicadores do bloco vulnerabilidade social do Atlas do Desenvolvimento Humano. O índice está estruturado em 3 dimensões*, Infraestrutura urbana*, *capital humano* e *renda e trabalho*. O índice varia entre 0 e 1, quanto mais próximo de 1, maior a vulnerabilidade social da localidade. A partir do IVS, as unidades de análise podem ser classificadas em 5 faixas:
+```r
+source("creches.R")
+```
 
--   Muito Baixa \< 0,2
+Este script prepara os dados necessários e salva os objetos no formato apropriado para o relatório.
 
--   Baixa \< 0,3
+### 4. Gerar o relatório
 
--   Média \< 0,4
+No terminal ou RStudio, rode o seguinte comando:
 
--   Alta \< 0,5
+```bash
+quarto render creches_app.qmd
+```
 
--   Muito Alta \> 0,5
+O relatório HTML será gerado na mesma pasta.
 
-O IVS foi adotado como critério de análise por sintetizar características relevantes para priorização da ampliação do serviço, uma vez que nas Unidades de Desenvolvimento Humano com *menor* vulnerabilidade social, parte da população alvo utiliza o serviço fornecido pela rede privada ou por trabalhadores domésticos. Além disso, a segmentação das UDH facilita o cálculo da população, ainda que com os dados do Censo de 2010. Foi feita uma tentativa de estimar a população através dos pontos de fornecimento de energia, mas o resultado não foi considerado satisfatório, pois a população total estimada ficou muito abaixo do esperado para toda a RMR. No entanto, estes dados foram utilizados para construir uma grade de células de 2 KM^2^ a partir concentração espacial de unidades familiares (pontos de energia) e fazer um recorte da densidade populacional da UDH, retirando as células com população alvo estimada menor que 20 crianças. Assim é possível identificar regiões de pouca densidade populacional de forma mais detalhada. Para calcular a oferta de vagas, foi utilizado o total de mátriculas registrados no Censo Escolar de 2022.
+## 📊 Saída esperada
+
+Um relatório com mapas temáticos, gráficos e tabelas interativas, identificando os bairros/setores censitários com maior necessidade de expansão do serviço de creche pública.
+
+## 📌 Licença
+
+Este projeto é distribuído sob a licença MIT.
+
+## 🙋‍♂️ Autor
+
+João Paulo Andrade 
+[GitHub: @jpwa22](https://github.com/jpwa22)
+
+---
+
+*Para dúvidas ou sugestões, sinta-se à vontade para abrir uma issue ou entrar em contato.*
